@@ -11,4 +11,4 @@ services:
       - key: PORT
         value: 10000
       - key: MONGODB_URI
-        sync: false  # 需要在 Render 控制台手动设置
+        sync: mongodb+srv://dialysis_user:vTmpKJYeGZ6Wg2zs@cluster0.zo1wani.mongodb.net/dialysis?retryWrites=true&w=majority
