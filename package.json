@@ -4,7 +4,7 @@
   "description": "血液透析感染防控监测数据上报系统后端服务",
   "main": "server-mongodb.js",
   "scripts": {
-    "start": "node server-mongodb.js",
+    "start": "node server.js",
     "dev": "node server-mongodb.js"
   },
   "engines": {
