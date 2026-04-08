@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: dialysis-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server-mongodb.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false  # 需要在 Render 控制台手动设置
