@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
 
+// 删除已存在的模型缓存，确保使用新Schema
+if (mongoose.models.Report) {
+  delete mongoose.models.Report;
+}
+
 const reportSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
   userId: { type: String, required: true },
@@ -42,24 +47,6 @@ const reportSchema = new mongoose.Schema({
 }, { 
   strict: false,
   timestamps: false
-});
-
-// 删除旧索引，确保Schema更新生效
-reportSchema.pre('save', async function(next) {
-  if (this.isNew) {
-    try {
-      const collection = mongoose.connection.collection('reports');
-      const indexes = await collection.indexes();
-      for (const index of indexes) {
-        if (index.name !== '_id_') {
-          await collection.dropIndex(index.name);
-        }
-      }
-    } catch (e) {
-      // 忽略索引删除错误
-    }
-  }
-  next();
 });
 
 module.exports = mongoose.model('Report', reportSchema);
