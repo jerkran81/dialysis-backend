@@ -9,6 +9,21 @@ const InviteCode = require('./models/InviteCode');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// SSE 客户端列表
+const sseClients = [];
+
+// 发送实时更新给所有连接的客户端
+function broadcastUpdate(type, data) {
+  const message = JSON.stringify({ type, data, timestamp: new Date().toISOString() });
+  sseClients.forEach(client => {
+    try {
+      client.res.write(`data: ${message}\n\n`);
+    } catch (e) {
+      // 忽略发送失败的客户端
+    }
+  });
+}
+
 // 固定邀请码列表
 const FIXED_INVITE_CODES = [
   'CSJK2024A', 'CSJK2024B', 'CSJK2024C', 'CSJK2024D', 'CSJK2024E',
@@ -28,6 +43,35 @@ app.use(express.json());
 // 健康检查端点
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ============ SSE 实时推送 API ============
+
+// SSE 连接端点
+app.get('/api/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  
+  // 发送初始连接成功消息
+  res.write(`data: ${JSON.stringify({ type: 'connected', message: '实时连接已建立' })}\n\n`);
+  
+  // 保存客户端连接
+  const clientId = Date.now() + Math.random();
+  const client = { id: clientId, res };
+  sseClients.push(client);
+  
+  console.log(`SSE 客户端连接，当前连接数: ${sseClients.length}`);
+  
+  // 客户端断开连接时清理
+  req.on('close', () => {
+    const index = sseClients.findIndex(c => c.id === clientId);
+    if (index !== -1) {
+      sseClients.splice(index, 1);
+      console.log(`SSE 客户端断开，当前连接数: ${sseClients.length}`);
+    }
+  });
 });
 
 // 初始化管理员
@@ -111,6 +155,10 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     const { password: _, ...userWithoutPassword } = newUser.toObject();
+    
+    // 广播新用户注册事件
+    broadcastUpdate('user_registered', userWithoutPassword);
+    
     res.json({ success: true, message: '注册成功', user: userWithoutPassword });
   } catch (err) {
     console.error('注册错误:', err);
@@ -292,6 +340,9 @@ app.post('/api/reports', async (req, res) => {
       submittedAt: new Date().toISOString()
     });
 
+    // 广播新上报事件
+    broadcastUpdate('report_submitted', newReport);
+    
     res.json({ success: true, message: '上报成功', report: newReport });
   } catch (err) {
     console.error('添加上报数据错误:', err);
