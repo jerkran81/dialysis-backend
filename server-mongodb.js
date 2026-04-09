@@ -354,4 +354,38 @@ async function startServer() {
   });
 }
 
-startServer();
+// 清理旧集合（解决Schema变更问题）
+async function cleanupOldCollections() {
+  try {
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState === 1) {
+      const collections = await mongoose.connection.db.listCollections().toArray();
+      const reportCollection = collections.find(c => c.name === 'reports');
+      if (reportCollection) {
+        console.log('检测到旧reports集合，正在删除以应用新Schema...');
+        await mongoose.connection.db.dropCollection('reports');
+        console.log('旧reports集合已删除');
+      }
+    }
+  } catch (err) {
+    console.log('清理旧集合时出错（可忽略）:', err.message);
+  }
+}
+
+// 启动服务器
+async function startServer() {
+  const dbConnected = await connectDB();
+
+  if (dbConnected) {
+    await cleanupOldCollections();  // ← 放在这里
+    await initAdmin();
+  } else {
+    console.log('警告: MongoDB 连接失败，部分功能可能不可用');
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`服务器运行在端口 ${PORT}`);
+    console.log(`API 地址: http://localhost:${PORT}/api`);
+    console.log(`健康检查: http://localhost:${PORT}/health`);
+  });
+}
