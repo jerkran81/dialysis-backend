@@ -32,6 +32,9 @@ const FIXED_INVITE_CODES = [
   'CSJK2024P', 'CSJK2024Q', 'CSJK2024R', 'CSJK2024S', 'CSJK2024T'
 ];
 
+// 存储被删除的固定邀请码（内存存储，重启后重置）
+let deletedFixedCodes = [];
+
 // 中间件
 app.use(cors({
   origin: '*',
@@ -268,7 +271,8 @@ app.get('/api/invite-codes', async (req, res) => {
       success: true,
       inviteCodes,
       usedFixedCodes,
-      fixedCodes: FIXED_INVITE_CODES
+      fixedCodes: FIXED_INVITE_CODES,
+      deletedFixedCodes
     });
   } catch (err) {
     console.error('获取邀请码错误:', err);
@@ -310,6 +314,34 @@ app.delete('/api/invite-codes/:code', async (req, res) => {
     res.json({ success: true, message: '删除成功' });
   } catch (err) {
     console.error('删除邀请码错误:', err);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 删除固定邀请码
+app.delete('/api/fixed-invite-codes/:code', async (req, res) => {
+  try {
+    const { code } = req.params;
+    
+    // 检查是否是有效的固定邀请码
+    if (!FIXED_INVITE_CODES.includes(code)) {
+      return res.status(400).json({ success: false, message: '无效的固定邀请码' });
+    }
+    
+    // 检查是否已被使用
+    const usersWithCode = await User.findOne({ inviteCode: code });
+    if (usersWithCode) {
+      return res.status(400).json({ success: false, message: '该邀请码已被使用，无法删除' });
+    }
+    
+    // 添加到已删除列表
+    if (!deletedFixedCodes.includes(code)) {
+      deletedFixedCodes.push(code);
+    }
+    
+    res.json({ success: true, message: '删除成功' });
+  } catch (err) {
+    console.error('删除固定邀请码错误:', err);
     res.status(500).json({ success: false, message: '服务器错误' });
   }
 });
@@ -389,34 +421,7 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// 清理旧集合（解决Schema变更问题）
-async function cleanupOldCollections() {
-  try {
-    // 等待连接就绪
-    if (!mongoose.connection || mongoose.connection.readyState !== 1) {
-      console.log('MongoDB 未连接，跳过集合清理');
-      return;
-    }
-    
-    const db = mongoose.connection.db;
-    if (!db) {
-      console.log('数据库对象不存在，跳过集合清理');
-      return;
-    }
-    
-    const collections = await db.listCollections().toArray();
-    const reportCollection = collections.find(c => c.name === 'reports');
-    if (reportCollection) {
-      console.log('检测到旧reports集合，正在删除以应用新Schema...');
-      await db.dropCollection('reports');
-      console.log('旧reports集合已删除');
-    } else {
-      console.log('reports集合不存在，无需清理');
-    }
-  } catch (err) {
-    console.log('清理旧集合时出错（可忽略）:', err.message);
-  }
-}
+// ============ 启动服务器 ============
 
 // 启动服务器
 async function startServer() {
@@ -424,11 +429,9 @@ async function startServer() {
     const dbConnected = await connectDB();
 
     if (dbConnected) {
-      try {
-        await cleanupOldCollections();
-      } catch (e) {
-        console.log('清理集合时出错:', e.message);
-      }
+      // 不再清理集合，避免数据丢失
+      // 之前每次部署都会删除reports集合，导致数据丢失
+      
       try {
         await initAdmin();
       } catch (e) {
