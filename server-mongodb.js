@@ -382,6 +382,33 @@ app.post('/api/reports', async (req, res) => {
   }
 });
 
+// 修改上报数据（新增 - 管理员权限）
+app.put('/api/reports/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { institution, indicators } = req.body;
+    
+    const report = await Report.findOne({ id });
+    if (!report) {
+      return res.status(404).json({ success: false, message: '上报数据不存在' });
+    }
+    
+    // 更新数据
+    report.institution = institution;
+    report.indicators = indicators;
+    report.updatedAt = new Date().toISOString();
+    await report.save();
+    
+    // 广播更新事件
+    broadcastUpdate('report_updated', report);
+    
+    res.json({ success: true, message: '修改成功', report });
+  } catch (err) {
+    console.error('修改上报数据错误:', err);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
 // 删除上报数据
 app.delete('/api/reports/:id', async (req, res) => {
   try {
