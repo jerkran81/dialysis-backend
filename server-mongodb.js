@@ -229,7 +229,7 @@ app.post('/api/users/change-password', async (req, res) => {
   }
 });
 
-// 更新用户信息
+// 更新用户信息（支持管理员修改任意用户）
 app.put('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -240,6 +240,7 @@ app.put('/api/users/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: '用户不存在' });
     }
 
+    // 更新字段
     if (realName !== undefined) user.realName = realName;
     if (phone !== undefined) user.phone = phone;
     if (institutionName !== undefined) user.institutionName = institutionName;
@@ -382,7 +383,7 @@ app.post('/api/reports', async (req, res) => {
   }
 });
 
-// 修改上报数据（新增 - 管理员权限）
+// 修改上报数据（管理员权限）
 app.put('/api/reports/:id', async (req, res) => {
   try {
     const { id } = req.params;
