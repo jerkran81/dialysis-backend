@@ -11,6 +11,18 @@ const PORT = process.env.PORT || 3001;
 
 // SSE 客户端列表
 const sseClients = [];
+// 存储验证码（内存存储，带过期时间）
+const verificationCodes = new Map();
+
+// 清理过期验证码（每10分钟）
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, data] of verificationCodes.entries()) {
+    if (now > data.expiresAt) {
+      verificationCodes.delete(key);
+    }
+  }
+}, 600000);
 
 // 发送实时更新给所有连接的客户端
 function broadcastUpdate(type, data) {
