@@ -11,18 +11,6 @@ const PORT = process.env.PORT || 3001;
 
 // SSE 客户端列表
 const sseClients = [];
-// 存储验证码（内存存储，带过期时间）
-const verificationCodes = new Map();
-
-// 清理过期验证码（每10分钟）
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, data] of verificationCodes.entries()) {
-    if (now > data.expiresAt) {
-      verificationCodes.delete(key);
-    }
-  }
-}, 600000);
 
 // 发送实时更新给所有连接的客户端
 function broadcastUpdate(type, data) {
@@ -46,6 +34,9 @@ const FIXED_INVITE_CODES = [
 
 // 存储被删除的固定邀请码（内存存储，重启后重置）
 let deletedFixedCodes = [];
+
+// 初始密码常量
+const DEFAULT_PASSWORD = 'Cqcs@8888';
 
 // 中间件
 app.use(cors({
@@ -108,6 +99,15 @@ async function initAdmin() {
   }
 }
 
+// 密码强度验证函数
+function validatePassword(password) {
+  if (!password || password.length < 8) return { valid: false, message: '密码长度至少8位' };
+  if (!/[a-zA-Z]/.test(password)) return { valid: false, message: '密码必须包含英文字母' };
+  if (!/\d/.test(password)) return { valid: false, message: '密码必须包含数字' };
+  if (!/[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]/.test(password)) return { valid: false, message: '密码必须包含特殊字符(!@#$%^&*等)' };
+  return { valid: true };
+}
+
 // ============ 用户认证相关 API ============
 
 // 登录
@@ -137,6 +137,12 @@ app.post('/api/auth/register', async (req, res) => {
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ success: false, message: '用户名已存在' });
+    }
+
+    // 验证密码强度
+    const pwdCheck = validatePassword(password);
+    if (!pwdCheck.valid) {
+      return res.status(400).json({ success: false, message: pwdCheck.message });
     }
 
     // 验证邀请码
@@ -181,6 +187,42 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// 忘记密码 - 输入用户名+机构名称验证后重置为初始密码
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { username, institutionName } = req.body;
+
+    if (!username || !institutionName) {
+      return res.status(400).json({ success: false, message: '请输入用户名和机构名称' });
+    }
+
+    // 查找用户
+    const user = await User.findOne({ username }).lean();
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户名不存在' });
+    }
+
+    // 验证机构名称是否匹配
+    if (user.institutionName !== institutionName.trim()) {
+      return res.status(400).json({ success: false, message: '机构名称与注册时不一致' });
+    }
+
+    // 重置为初始密码
+    await User.updateOne({ username }, { password: DEFAULT_PASSWORD });
+
+    console.log(`[找回密码] 用户 ${username} 密码已重置为初始密码`);
+
+    res.json({
+      success: true,
+      message: '密码已重置为初始密码',
+      password: DEFAULT_PASSWORD
+    });
+  } catch (err) {
+    console.error('找回密码错误:', err);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
 // ============ 用户管理 API ============
 
 // 获取所有用户
@@ -191,6 +233,29 @@ app.get('/api/users', async (req, res) => {
     res.json({ success: true, users: usersWithoutPassword });
   } catch (err) {
     console.error('获取用户错误:', err);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 导出所有用户注册信息
+app.get('/api/users/export', async (req, res) => {
+  try {
+    const users = await User.find().lean();
+    
+    const exportData = users.map(({ password, ...user }) => ({
+      用户ID: user.id,
+      用户名: user.username,
+      真实姓名: user.realName || '-',
+      手机号: user.phone || '-',
+      所属机构: user.institutionName || '-',
+      角色: user.role === 'admin' ? '管理员' : '普通用户',
+      邀请码: user.inviteCode || '-',
+      注册时间: user.createdAt ? new Date(user.createdAt).toLocaleString('zh-CN') : '-'
+    }));
+    
+    res.json({ success: true, data: exportData });
+  } catch (err) {
+    console.error('导出用户错误:', err);
     res.status(500).json({ success: false, message: '服务器错误' });
   }
 });
@@ -241,7 +306,37 @@ app.post('/api/users/change-password', async (req, res) => {
   }
 });
 
-// 更新用户信息（支持管理员修改任意用户）
+// 管理员重置用户密码为初始密码
+app.post('/api/users/:id/reset-password', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findOne({ id });
+    if (!user) {
+      return res.status(404).json({ success: false, message: '用户不存在' });
+    }
+
+    if (user.role === 'admin') {
+      return res.status(403).json({ success: false, message: '不能重置管理员密码' });
+    }
+
+    user.password = DEFAULT_PASSWORD;
+    await user.save();
+
+    console.log(`[管理员] 用户 ${user.username} 密码已重置为初始密码`);
+
+    res.json({
+      success: true,
+      message: '密码重置成功',
+      password: DEFAULT_PASSWORD
+    });
+  } catch (err) {
+    console.error('管理员重置密码错误:', err);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 更新用户信息
 app.put('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -252,7 +347,6 @@ app.put('/api/users/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: '用户不存在' });
     }
 
-    // 更新字段
     if (realName !== undefined) user.realName = realName;
     if (phone !== undefined) user.phone = phone;
     if (institutionName !== undefined) user.institutionName = institutionName;
@@ -274,7 +368,6 @@ app.get('/api/invite-codes', async (req, res) => {
   try {
     const inviteCodes = await InviteCode.find().lean();
 
-    // 获取已使用的固定邀请码
     const usersWithFixedCodes = await User.find({
       inviteCode: { $in: FIXED_INVITE_CODES }
     }).lean();
@@ -336,18 +429,15 @@ app.delete('/api/fixed-invite-codes/:code', async (req, res) => {
   try {
     const { code } = req.params;
     
-    // 检查是否是有效的固定邀请码
     if (!FIXED_INVITE_CODES.includes(code)) {
       return res.status(400).json({ success: false, message: '无效的固定邀请码' });
     }
     
-    // 检查是否已被使用
     const usersWithCode = await User.findOne({ inviteCode: code });
     if (usersWithCode) {
       return res.status(400).json({ success: false, message: '该邀请码已被使用，无法删除' });
     }
     
-    // 添加到已删除列表
     if (!deletedFixedCodes.includes(code)) {
       deletedFixedCodes.push(code);
     }
@@ -385,7 +475,6 @@ app.post('/api/reports', async (req, res) => {
       submittedAt: new Date().toISOString()
     });
 
-    // 广播新上报事件
     broadcastUpdate('report_submitted', newReport);
     
     res.json({ success: true, message: '上报成功', report: newReport });
@@ -406,13 +495,11 @@ app.put('/api/reports/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: '上报数据不存在' });
     }
     
-    // 更新数据
     report.institution = institution;
     report.indicators = indicators;
     report.updatedAt = new Date().toISOString();
     await report.save();
     
-    // 广播更新事件
     broadcastUpdate('report_updated', report);
     
     res.json({ success: true, message: '修改成功', report });
@@ -463,15 +550,11 @@ app.get('/api/stats', async (req, res) => {
 
 // ============ 启动服务器 ============
 
-// 启动服务器
 async function startServer() {
   try {
     const dbConnected = await connectDB();
 
     if (dbConnected) {
-      // 不再清理集合，避免数据丢失
-      // 之前每次部署都会删除reports集合，导致数据丢失
-      
       try {
         await initAdmin();
       } catch (e) {
@@ -488,7 +571,6 @@ async function startServer() {
     });
   } catch (error) {
     console.error('启动服务器时出错:', error);
-    // 即使出错也要启动服务器
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`服务器运行在端口 ${PORT} (降级模式)`);
     });
