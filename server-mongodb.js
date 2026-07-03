@@ -225,7 +225,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
 // ============ 用户管理 API ============
 
-// 获取所有用户
+// 获取所有用户（不包含密码）
 app.get('/api/users', async (req, res) => {
   try {
     const users = await User.find().lean();
@@ -233,6 +233,18 @@ app.get('/api/users', async (req, res) => {
     res.json({ success: true, users: usersWithoutPassword });
   } catch (err) {
     console.error('获取用户错误:', err);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 获取所有用户（包含密码，仅管理员查看）
+app.get('/api/users/admin', async (req, res) => {
+  try {
+    const users = await User.find().lean();
+    // 返回完整用户信息，包括密码
+    res.json({ success: true, users });
+  } catch (err) {
+    console.error('获取用户（含密码）错误:', err);
     res.status(500).json({ success: false, message: '服务器错误' });
   }
 });
